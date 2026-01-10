@@ -79,6 +79,8 @@ __device__ uint32_t lcg_next(uint32_t &state) {
   return state;
 }
 
+
+
 // --------------------------------------------
 // 3) Device-side hooks you will implement
 // --------------------------------------------
@@ -90,17 +92,100 @@ __device__ int generate_moves_device(const Board* b, Move* out_moves, int max_mo
   // PLACEHOLDER: produce some dummy moves so pipeline works.
   // Replace with real move gen.
   int count = 0;
+  int side = b->side_to_move; // +1 white, -1 black
+  //function to determine whether in board
+  bool in_board = [] __device__ (int pos) {
+    return pos >= 0 && pos < 64;
+  };
+  //add move, capture, etc.
+  int add_move = [] __device__ (Move* out, int count, int max,
+                        int from, int to) {
+    if (count < max) out[count++] = Move{(int8_t)from, (int8_t)to, 0};
+    return count;
+  }
+  //checkmate
+  {
+
+  }
+
+  //all possible moves
   for (int i = 0; i < 64 && count < max_moves; i++) {
     int8_t p = b->squares[i];
     if (p == EMPTY) continue;
-    // crude: if it's side's piece, "move" it forward 1 (nonsense but compiles)
-    if ((p > 0 && b->side_to_move > 0) || (p < 0 && b->side_to_move < 0)) {
-      int to = i + (b->side_to_move > 0 ? 8 : -8);
-      if (to >= 0 && to < 64) {
-        out_moves[count++] = Move{(int8_t)i, (int8_t)to, 0, 0};
+    if ((p > 0) != (side > 0)) continue; // not our piece
+
+    //pawn
+    if (p == WP || p == BP) {
+      int dir = (side > 0) ? +8 : -8;
+
+      // forward move (only if empty)
+      int fwd = i + dir;
+      if (in_bound(fwd) && b->squares[fwd] == EMPTY) {
+        count = add_move(out_moves, count, max_moves, i, fwd);
+      }
+
+      // captures
+      int capL = i + ((side > 0) ? +7 : -9);
+      int capR = i + ((side > 0) ? +9 : -7);
+
+      // You must also ensure file boundaries (avoid wrapping across board)
+      int file = i % 8;
+      if (file > 0 && in_bound(capL)) {
+        if (b->squares[capL] * side < 0) {
+          count = add_move(out_moves, count, max_moves, i, capL);
+        }
+      }
+      if (file < 7 && in_bound(capR)) {
+        if (b->squares[capR] * side < 0) {
+          count = add_move(out_moves, count, max_moves, i, capR);
+        }
+      }
+    }
+
+    //king
+    if (p == WP || p == BP) {
+      //up
+      if (in_bound(i - 8) && (b->squares[i - 8] == EMPTY || b->squares[i - 8] * side < 0)) {
+        count = add_move(out_moves, count, max_moves, i, i - 8);
+      }
+      //down
+      if (in_bound(i + 8) && (b->squares[i + 8] == EMPTY || b->squares[i + 8] * side < 0)) {
+        count = add_move(out_moves, count, max_moves, i, i + 8);
+      }
+      int file = i % 8;
+      //left
+      if (file > 0 && in_bound(i - 1)) {
+        if (b->squares[i - 1] == EMPTY || b->squares[i - 1] * side < 0)
+          count = add_move(out_moves, count, max_moves, i, i - 1);
+      }
+      //up left
+      if (file > 0 && in_bound(i - 9)) {
+        if (b->squares[i - 9] == EMPTY || b->squares[i - 9] * side < 0)
+          count = add_move(out_moves, count, max_moves, i, i - 9);
+      }
+      //bottom left
+      if (file > 0 && in_bound(i + 7)) {
+        if (b->squares[i + 7] == EMPTY || b->squares[i + 7] * side < 0)
+          count = add_move(out_moves, count, max_moves, i, i + 7);
+      }
+      //right
+      if (file > 0 && in_bound(i + 1)) {
+        if (b->squares[i + 1] == EMPTY || b->squares[i + 1] * side < 0)
+          count = add_move(out_moves, count, max_moves, i, i + 1);
+      }
+      //up right
+      if (file > 0 && in_bound(i - 7)) {
+        if (b->squares[i - 7] == EMPTY || b->squares[i - 7] * side < 0)
+          count = add_move(out_moves, count, max_moves, i, i - 7);
+      }
+      //bottom right
+      if (file > 0 && in_bound(i + 9)) {
+        if (b->squares[i + 9] == EMPTY || b->squares[i + 9] * side < 0)
+          count = add_move(out_moves, count, max_moves, i, i + 9);
       }
     }
   }
+  
   return count;
 }
 
@@ -125,19 +210,40 @@ __global__ void choose_move_kernel(const Board* d_board,
 
   __shared__ Move moves[256];
   __shared__ int move_count;
+  __shared__ int scores[256];
 
   if (threadIdx.x == 0) {
     move_count = generate_moves_device(d_board, moves, 256);
+    *d_found = (move_count > 0);
+  }
+  __syncthreads();
+  if (move_count <= 0) return;
+
+  int i = threadIdx.x;
+  if (i < n) {
+    Board tmp = *d_board;                 // <--- key: local copy
+    apply_move_device(&tmp, moves[i]);
+    int s = eval_board_device(&tmp);
+
+    // Make "higher is better for side to move"
+    s *= (int)b->side_to_move;
+
+    scores[i] = s;
   }
   __syncthreads();
 
   if (threadIdx.x == 0) {
-    if (move_count <= 0) {
-      *d_found = 0;
-      return;
+    int best_i = 0;
+    for (int k = 1; k < n; k++) {
+      if (scores[k] > scores[best_i]) best_i = k;
+    }
+    int best_scores[256];
+    int best_counts = 0
+    for (int k = 1; k < n; k++) {
+      if (scores[k] == best_i) best_scores[best_counts++] = k;
     }
     uint32_t st = seed ^ (uint32_t)clock64();
-    int idx = (int)(lcg_next(st) % (uint32_t)move_count);
+    int idx = (int)(best_scores[lcg_next(st) % (uint32_t)best_counts]);
     *d_best_move = moves[idx];
     *d_found = 1;
   }
@@ -160,6 +266,19 @@ void apply_move_host(Board& b, const Move& m) {
 GameResult check_game_over_host(const Board& b, int ply_count) {
   // PLACEHOLDER: stop after N plies
   if (ply_count >= 80) return DRAW;
+  //find king
+  bool found_K = false;
+  for (int i = 0; i < 64; i++) {
+    if (b.side_to_move > 0 && b->squares[i] == BK
+    || b.side_to_move < 0 && b->squares[i] == WK) {
+      found_K = true;
+      break;
+    }
+  }
+  if (!found_K) {
+    if (b.side_to_move > 0) return WHITE_WINS;
+    else return BLACK_WINS;
+  }
   return ONGOING;
 }
 
