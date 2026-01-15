@@ -43,7 +43,7 @@
 enum Piece : int8_t {
   EMPTY = 0,
 
-  WP = 1, WN, WB, WR, WQ, WK,
+  WP = 1, WN = 2, WB = 3, WR = 4, WQ = 5, WK = 6,
   BP = -1, BN = -2, BB = -3, BR = -4, BQ = -5, BK = -6
 };
 
@@ -88,21 +88,25 @@ __device__ uint32_t lcg_next(uint32_t &state) {
 // TODO: generate legal moves for side_to_move.
 // For now we just pretend there are some candidates.
 // In a real version, you'd fill a moves array and return count.
+
+//function to determine whether in board
+__device__ __forceinline__ bool in_bound(int pos) {
+    return pos >= 0 && pos < 64;
+}
+
+//add move, capture, etc.
+__device__ int add_move(Move* out, int count, int max,
+                      int from, int to) {
+  if (count < max) out[count++] = Move{(int8_t)from, (int8_t)to, 0, 0};
+  return count;
+};
+
 __device__ int generate_moves_device(const Board* b, Move* out_moves, int max_moves) {
   // PLACEHOLDER: produce some dummy moves so pipeline works.
   // Replace with real move gen.
   int count = 0;
   int side = b->side_to_move; // +1 white, -1 black
-  //function to determine whether in board
-  bool in_board = [] __device__ (int pos) {
-    return pos >= 0 && pos < 64;
-  };
-  //add move, capture, etc.
-  int add_move = [] __device__ (Move* out, int count, int max,
-                        int from, int to) {
-    if (count < max) out[count++] = Move{(int8_t)from, (int8_t)to, 0};
-    return count;
-  }
+
   //checkmate
   {
 
@@ -143,7 +147,7 @@ __device__ int generate_moves_device(const Board* b, Move* out_moves, int max_mo
     }
 
     //king
-    if (p == WP || p == BP) {
+    if (p == WK || p == BK) {
       //up
       if (in_bound(i - 8) && (b->squares[i - 8] == EMPTY || b->squares[i - 8] * side < 0)) {
         count = add_move(out_moves, count, max_moves, i, i - 8);
@@ -198,6 +202,12 @@ __device__ int eval_board_device(const Board* b) {
   return score;
 }
 
+__device__ void apply_move_device(Board& b, const Move& m) {
+  int8_t p = b.squares[(int)m.from];
+  b.squares[(int)m.from] = EMPTY;
+  b.squares[(int)m.to] = p;
+}
+
 // TODO: search strategy kernel
 // This kernel should pick one move for the current board.
 // Different GPUs can run different kernels or strategies.
@@ -205,49 +215,59 @@ __global__ void choose_move_kernel(const Board* d_board,
                                    Move* d_best_move,
                                    int* d_found,
                                    uint32_t seed) {
-  // One-block toy: thread0 generates moves, then pick one randomly.
-  // Replace with parallel search (many threads evaluate many moves).
-
   __shared__ Move moves[256];
-  __shared__ int move_count;
-  __shared__ int scores[256];
+  __shared__ int  move_count;
+  __shared__ int  scores[256];
 
+  // Generate moves once
   if (threadIdx.x == 0) {
     move_count = generate_moves_device(d_board, moves, 256);
-    *d_found = (move_count > 0);
+    *d_found = (move_count > 0) ? 1 : 0;
   }
   __syncthreads();
+
   if (move_count <= 0) return;
 
   int i = threadIdx.x;
-  if (i < n) {
-    Board tmp = *d_board;                 // <--- key: local copy
-    apply_move_device(&tmp, moves[i]);
+
+  // Only score valid moves
+  if (i < move_count) {
+    Board tmp = *d_board;
+    apply_move_device(tmp, moves[i]);
     int s = eval_board_device(&tmp);
 
-    // Make "higher is better for side to move"
-    s *= (int)b->side_to_move;
+    // Higher is better for side to move
+    s *= (int)d_board->side_to_move;
 
     scores[i] = s;
   }
   __syncthreads();
 
   if (threadIdx.x == 0) {
+    // Find best score among valid moves
     int best_i = 0;
-    for (int k = 1; k < n; k++) {
+    for (int k = 1; k < move_count; k++) {
       if (scores[k] > scores[best_i]) best_i = k;
     }
-    int best_scores[256];
-    int best_counts = 0
-    for (int k = 1; k < n; k++) {
-      if (scores[k] == best_i) best_scores[best_counts++] = k;
+
+    // Collect ties (indices), including k=0
+    int best_score = scores[best_i];
+    int best_idx[256];
+    int best_count = 0;
+    for (int k = 0; k < move_count; k++) {
+      if (scores[k] == best_score) best_idx[best_count++] = k;
     }
+
+    // Random pick among ties
     uint32_t st = seed ^ (uint32_t)clock64();
-    int idx = (int)(best_scores[lcg_next(st) % (uint32_t)best_counts]);
-    *d_best_move = moves[idx];
+    uint32_t r  = lcg_next(st);
+    int pick = best_idx[r % (uint32_t)best_count];
+
+    *d_best_move = moves[pick];
     *d_found = 1;
   }
 }
+
 
 // ------------------------------------------------------
 // 4) Host-side chess hooks (apply move, end condition)
@@ -259,7 +279,7 @@ void apply_move_host(Board& b, const Move& m) {
   int8_t p = b.squares[(int)m.from];
   b.squares[(int)m.from] = EMPTY;
   b.squares[(int)m.to] = p;
-  b.side_to_move = -b.side_to_move;
+  // b.side_to_move = -b.side_to_move;
 }
 
 // TODO: detect checkmate/stalemate/illegal, etc.
@@ -269,8 +289,8 @@ GameResult check_game_over_host(const Board& b, int ply_count) {
   //find king
   bool found_K = false;
   for (int i = 0; i < 64; i++) {
-    if (b.side_to_move > 0 && b->squares[i] == BK
-    || b.side_to_move < 0 && b->squares[i] == WK) {
+    if (b.side_to_move > 0 && b.squares[i] == BK
+    || b.side_to_move < 0 && b.squares[i] == WK) {
       found_K = true;
       break;
     }
@@ -319,6 +339,7 @@ void print_board(const Board& b) {
     std::cout << "\n";
   }
   std::cout << "\n";
+  std::cout << std::flush;
 }
 
 // ------------------------------------------------------
@@ -327,6 +348,7 @@ void print_board(const Board& b) {
 
 struct PlayerGPUContext {
   int device_id;
+  int side;
 
   // Device allocations (per GPU)
   Board* d_board = nullptr;
@@ -361,18 +383,21 @@ struct PlayerGPUContext {
                                cudaMemcpyHostToDevice, stream));
 
     // One block is enough for skeleton. Expand later.
+    CUDA_CHECK(cudaMemsetAsync(d_found, 0, sizeof(int), stream));
     choose_move_kernel<<<1, 128, 0, stream>>>(d_board, d_best_move, d_found, seed);
     CUDA_CHECK(cudaGetLastError());
-
+  
     int found = 0;
     CUDA_CHECK(cudaMemcpyAsync(&found, d_found, sizeof(int),
-                               cudaMemcpyDeviceToHost, stream));
-    if (found) {
-      CUDA_CHECK(cudaMemcpyAsync(&out_move, d_best_move, sizeof(Move),
-                                 cudaMemcpyDeviceToHost, stream));
-    }
+                              cudaMemcpyDeviceToHost, stream));
     CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    if (found) {
+      CUDA_CHECK(cudaMemcpy(&out_move, d_best_move, sizeof(Move),
+                            cudaMemcpyDeviceToHost));
+    }
     return found != 0;
+
   }
 };
 
@@ -384,32 +409,28 @@ struct SharedGameState {
 
   std::mutex m;
   std::condition_variable cv;
-  int turn_side = +1; // +1 white, -1 black
 
   std::atomic<bool> stop{false};
 };
 
 // Thread function for one GPU player
-void gpu_player_thread(PlayerGPUContext ctx, SharedGameState* gs) {
+void gpu_player_thread(PlayerGPUContext& ctx, SharedGameState* gs) {
   ctx.init();
 
   std::mt19937 rng((unsigned)std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
   while (!gs->stop.load()) {
     Board local_board{};
-    int my_side = 0;
+    int my_side = ctx.side;
 
     {
       std::unique_lock<std::mutex> lk(gs->m);
       gs->cv.wait(lk, [&]{
-        return gs->stop.load() || (gs->result == ONGOING && gs->turn_side == gs->board.side_to_move);
+        return gs->stop.load() || (gs->result == ONGOING && gs->board.side_to_move == ctx.side);
       });
 
       if (gs->stop.load() || gs->result != ONGOING) break;
 
-      // This thread plays the side whose turn it is, if mapped to it.
-      // Map: GPU0 = white, GPU1 = black (simple).
-      my_side = (ctx.device_id == 0) ? +1 : -1;
       if (gs->board.side_to_move != my_side) {
         // Not my turn (shouldn’t happen if mapping & wait predicate align)
         continue;
@@ -420,7 +441,12 @@ void gpu_player_thread(PlayerGPUContext ctx, SharedGameState* gs) {
     // Choose move on GPU
     Move m{};
     uint32_t seed = (uint32_t)rng();
+    //printf("[side %d] start choose_move ply=%d\n", ctx.side, gs->ply_count);
+    //fflush(stdout);
     bool found = ctx.choose_move(local_board, m, seed);
+    //std::cout << "found: " << found << std::endl;
+    //printf("[side %d] choose_move done found=%d\n", ctx.side, (int)found);
+    //fflush(stdout);
 
     {
       std::lock_guard<std::mutex> lk(gs->m);
@@ -432,11 +458,12 @@ void gpu_player_thread(PlayerGPUContext ctx, SharedGameState* gs) {
         gs->stop.store(true);
       } else {
         apply_move_host(gs->board, m);
+        //printf("[side %d] applied move ply=%d new_side=%d\n",ctx.side, gs->ply_count, gs->board.side_to_move);
+        //fflush(stdout);
         gs->ply_count++;
+        print_board(gs->board);
         gs->result = check_game_over_host(gs->board, gs->ply_count);
-
-        // Switch turn
-        gs->turn_side = gs->board.side_to_move;
+        gs->board.side_to_move *= -1;
 
         if (gs->result != ONGOING) {
           gs->stop.store(true);
@@ -457,35 +484,35 @@ void gpu_player_thread(PlayerGPUContext ctx, SharedGameState* gs) {
 int main() {
   int device_count = 0;
   CUDA_CHECK(cudaGetDeviceCount(&device_count));
-  if (device_count < 2) {
-    std::cerr << "Need at least 2 CUDA devices for this assignment. Found: "
-              << device_count << "\n";
-    return 1;
+  bool single_gpu_emulation = (device_count < 2);
+  if (single_gpu_emulation) {
+    printf("Only %d CUDA device found. Running in single-GPU emulation mode.\n", device_count);
   }
+  int dev0 = 0;
+  int dev1 = single_gpu_emulation ? 0 : 1;  // both map to same physical GPU in emulation
 
   SharedGameState gs;
   gs.board = make_initial_board();
-  gs.turn_side = gs.board.side_to_move;
 
   std::cout << "Starting game on GPU0 (White) vs GPU1 (Black)\n";
   print_board(gs.board);
 
-  PlayerGPUContext p0{0}, p1{1};
+  PlayerGPUContext p0{dev0, +1}, p1{dev1, -1};
 
-  std::thread t0(gpu_player_thread, p0, &gs);
-  std::thread t1(gpu_player_thread, p1, &gs);
+  std::thread t0(gpu_player_thread, std::ref(p0), &gs);
+  std::thread t1(gpu_player_thread, std::ref(p1), &gs);
 
   // Kick off
   gs.cv.notify_all();
 
   // Monitor loop (optional)
-  while (!gs.stop.load()) {
-    {
-      std::lock_guard<std::mutex> lk(gs.m);
-      print_board(gs.board);
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  }
+  // while (!gs.stop.load()) {
+  //   {
+  //     std::lock_guard<std::mutex> lk(gs.m);
+  //     print_board(gs.board);
+  //   }
+  //   std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  // }
 
   t0.join();
   t1.join();
