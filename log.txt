@@ -1,0 +1,294 @@
+Only 1 CUDA device found. Running in single-GPU emulation mode.
+Starting game on GPU0 (White) vs GPU1 (Black)
+Initial position
+. . . . k . . . 
+p p p p p p p p 
+. . . . . . . . 
+. . . . . . . . 
+. . . . . . . . 
+. . . . . . . . 
+P P P P P P P P 
+. . . . K . . . 
+
+White to move
+. . . . k . . . 
+p p p p p p p p 
+. . . . . . . . 
+. . . . . . . . 
+. . . . . P . . 
+. . . . . . . . 
+P P P P P . P P 
+. . . . K . . . 
+
+Black to move
+. . . . k . . . 
+p p p p p . p p 
+. . . . . . . . 
+. . . . . p . . 
+. . . . . P . . 
+. . . . . . . . 
+P P P P P . P P 
+. . . . K . . . 
+
+White to move
+. . . . k . . . 
+p p p p p . p p 
+. . . . . . . . 
+. . . . . p . . 
+P . . . . P . . 
+. . . . . . . . 
+. P P P P . P P 
+. . . . K . . . 
+
+Black to move
+. . . . k . . . 
+p p p p p . p . 
+. . . . . . . p 
+. . . . . p . . 
+P . . . . P . . 
+. . . . . . . . 
+. P P P P . P P 
+. . . . K . . . 
+
+White to move
+. . . . k . . . 
+p p p p p . p . 
+. . . . . . . p 
+. . . . . p . . 
+P . . . . P . . 
+. . . . . . P . 
+. P P P P . . P 
+. . . . K . . . 
+
+Black to move
+. . . . k . . . 
+. p p p p . p . 
+p . . . . . . p 
+. . . . . p . . 
+P . . . . P . . 
+. . . . . . P . 
+. P P P P . . P 
+. . . . K . . . 
+
+White to move
+. . . . k . . . 
+. p p p p . p . 
+p . . . . . . p 
+. . . . . p . . 
+P . . . . P . . 
+. . . P . . P . 
+. P P . P . . P 
+. . . . K . . . 
+
+Black to move
+. . . . k . . . 
+. p p p p . p . 
+p . . . . . . . 
+. . . . . p . p 
+P . . . . P . . 
+. . . P . . P . 
+. P P . P . . P 
+. . . . K . . . 
+
+White to move
+. . . . k . . . 
+. p p p p . p . 
+p . . . . . . . 
+. . . . . p . p 
+P . . . . P . . 
+. . . P . . P . 
+. P P . P . . P 
+. . . . . K . . 
+
+Black to move
+. . . . k . . . 
+. . p p p . p . 
+p p . . . . . . 
+. . . . . p . p 
+P . . . . P . . 
+. . . P . . P . 
+. P P . P . . P 
+. . . . . K . . 
+
+White to move
+. . . . k . . . 
+. . p p p . p . 
+p p . . . . . . 
+. . . . . p . p 
+P . . . . P . . 
+. . . P . . P . 
+. P P . P . . P 
+. . . . K . . . 
+
+Black to move
+. . . . k . . . 
+. . p p . . p . 
+p p . . p . . . 
+. . . . . p . p 
+P . . . . P . . 
+. . . P . . P . 
+. P P . P . . P 
+. . . . K . . . 
+
+White to move
+. . . . k . . . 
+. . p p . . p . 
+p p . . p . . . 
+. . . . . p . p 
+P . . . P P . . 
+. . . P . . P . 
+. P P . . . . P 
+. . . . K . . . 
+
+Black to move
+. . . . k . . . 
+. . p p . . p . 
+p p . . p . . . 
+. . . . . . . p 
+P . . . p P . . 
+. . . P . . P . 
+. P P . . . . P 
+. . . . K . . . 
+
+White to move
+. . . . k . . . 
+. . p p . . p . 
+p p . . p . . . 
+. . . . . . . p 
+P . . . P P . . 
+. . . . . . P . 
+. P P . . . . P 
+. . . . K . . . 
+
+Black to move
+. . . . . . . . 
+. . p p k . p . 
+p p . . p . . . 
+. . . . . . . p 
+P . . . P P . . 
+. . . . . . P . 
+. P P . . . . P 
+. . . . K . . . 
+
+White to move
+. . . . . . . . 
+. . p p k . p . 
+p p . . p . . . 
+. . . . . . . p 
+P . . . P P . . 
+. . . . . . P . 
+. P P . . K . P 
+. . . . . . . . 
+
+Black to move
+. . . . . . . . 
+. . . p k . p . 
+p p p . p . . . 
+. . . . . . . p 
+P . . . P P . . 
+. . . . . . P . 
+. P P . . K . P 
+. . . . . . . . 
+
+White to move
+. . . . . . . . 
+. . . p k . p . 
+p p p . p . . . 
+. . . . P . . p 
+P . . . . P . . 
+. . . . . . P . 
+. P P . . K . P 
+. . . . . . . . 
+
+Black to move
+. . . . k . . . 
+. . . p . . p . 
+p p p . p . . . 
+. . . . P . . p 
+P . . . . P . . 
+. . . . . . P . 
+. P P . . K . P 
+. . . . . . . . 
+
+White to move
+. . . . k . . . 
+. . . p . . p . 
+p p p . p . . . 
+. . . . P . . p 
+P . . . . P . . 
+. . . . K . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+Black to move
+. . . . k . . . 
+. . . p . . . . 
+p p p . p . . . 
+. . . . P . p p 
+P . . . . P . . 
+. . . . K . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+White to move
+. . . . k . . . 
+. . . p . . . . 
+p p p . p . . . 
+. . . . P . P p 
+P . . . . . . . 
+. . . . K . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+Black to move
+. . . . k . . . 
+. . . . . . . . 
+p p p . p . . . 
+. . . p P . P p 
+P . . . . . . . 
+. . . . K . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+White to move
+. . . . k . . . 
+. . . . . . . . 
+p p p . p . . . 
+. . . p P . P p 
+P . . K . . . . 
+. . . . . . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+Black to move
+. . . . . . . . 
+. . . k . . . . 
+p p p . p . . . 
+. . . p P . P p 
+P . . K . . . . 
+. . . . . . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+White to move
+. . . . . . . . 
+. . . k . . . . 
+p p p . p . . . 
+. . . K P . P p 
+P . . . . . . . 
+. . . . . . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+Black to move
+. . . . . . . . 
+. . . k . . . . 
+p p . . p . . . 
+. . . p P . P p 
+P . . . . . . . 
+. . . . . . P . 
+. P P . . . . P 
+. . . . . . . . 
+
+Game ended after 28 plies.
+Result: Black wins

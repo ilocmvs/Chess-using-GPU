@@ -1,5 +1,3 @@
-// gpu_chess_skeleton.cu
-// Skeleton for "two GPUs compete in a chess-like game" assignment.
 // This is NOT a full chess engine. It is an extensible scaffold.
 //
 // Build example:
@@ -19,11 +17,15 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <iostream>
 #include <mutex>
 #include <random>
 #include <thread>
 #include <vector>
+
+#include "piece_moves.cuh"
+#include "evaluate.cuh"
 
 #define CUDA_CHECK(call)                                                        \
   do {                                                                          \
@@ -35,172 +37,45 @@
     }                                                                           \
   } while (0)
 
-// ------------------------------
-// 1) Minimal chess data model
-// ------------------------------
-
-// A super-minimal piece encoding. You can replace with bitboards later.
-enum Piece : int8_t {
-  EMPTY = 0,
-
-  WP = 1, WN = 2, WB = 3, WR = 4, WQ = 5, WK = 6,
-  BP = -1, BN = -2, BB = -3, BR = -4, BQ = -5, BK = -6
-};
-
-// Board is 8x8 = 64 squares
-struct Board {
-  int8_t squares[64];   // piece codes
-  int8_t side_to_move;  // +1 white, -1 black
-  // Add castling rights, en passant, halfmove clock, etc. if you want.
-};
-
-struct Move {
-  int8_t from;      // 0..63
-  int8_t to;        // 0..63
-  int8_t promo;     // 0 none, or piece code
-  int8_t flags;     // optional: capture, castle, en-passant, etc.
-};
-
-// Game status returned by host checks
-enum GameResult {
-  ONGOING = 0,
-  WHITE_WINS,
-  BLACK_WINS,
-  DRAW
-};
-
 // --------------------------------------------
-// 2) Device-side RNG helper (simple placeholder)
+// Device-side RNG helper (simple placeholder)
 // --------------------------------------------
-// For an assignment skeleton, a very simple LCG per thread is fine.
-// Replace with curand if you want, but keep it simple for Coursera.
 __device__ uint32_t lcg_next(uint32_t &state) {
   state = 1664525u * state + 1013904223u;
   return state;
 }
 
-
-
 // --------------------------------------------
-// 3) Device-side hooks you will implement
+// Device-side move generation and selection
 // --------------------------------------------
-
-// TODO: generate legal moves for side_to_move.
-// For now we just pretend there are some candidates.
-// In a real version, you'd fill a moves array and return count.
-
-//function to determine whether in board
-__device__ __forceinline__ bool in_bound(int pos) {
-    return pos >= 0 && pos < 64;
-}
-
-//add move, capture, etc.
-__device__ int add_move(Move* out, int count, int max,
-                      int from, int to) {
-  if (count < max) out[count++] = Move{(int8_t)from, (int8_t)to, 0, 0};
-  return count;
-};
 
 __device__ int generate_moves_device(const Board* b, Move* out_moves, int max_moves) {
-  // PLACEHOLDER: produce some dummy moves so pipeline works.
-  // Replace with real move gen.
   int count = 0;
   int side = b->side_to_move; // +1 white, -1 black
-
-  //checkmate
-  {
-
-  }
 
   //all possible moves
   for (int i = 0; i < 64 && count < max_moves; i++) {
     int8_t p = b->squares[i];
     if (p == EMPTY) continue;
+
     if ((p > 0) != (side > 0)) continue; // not our piece
 
-    //pawn
-    if (p == WP || p == BP) {
-      int dir = (side > 0) ? +8 : -8;
-
-      // forward move (only if empty)
-      int fwd = i + dir;
-      if (in_bound(fwd) && b->squares[fwd] == EMPTY) {
-        count = add_move(out_moves, count, max_moves, i, fwd);
+    switch (p) {
+      case WP: case BP: {
+        count = generate_pawn_moves(b, i, side, out_moves, count, max_moves);
+        break;
       }
-
-      // captures
-      int capL = i + ((side > 0) ? +7 : -9);
-      int capR = i + ((side > 0) ? +9 : -7);
-
-      // You must also ensure file boundaries (avoid wrapping across board)
-      int file = i % 8;
-      if (file > 0 && in_bound(capL)) {
-        if (b->squares[capL] * side < 0) {
-          count = add_move(out_moves, count, max_moves, i, capL);
-        }
+      case WK: case BK: {
+        count = generate_king_moves(b, i, side, out_moves, count, max_moves);
+        break;
       }
-      if (file < 7 && in_bound(capR)) {
-        if (b->squares[capR] * side < 0) {
-          count = add_move(out_moves, count, max_moves, i, capR);
-        }
-      }
+      //more pieces to be added
     }
-
-    //king
-    if (p == WK || p == BK) {
-      //up
-      if (in_bound(i - 8) && (b->squares[i - 8] == EMPTY || b->squares[i - 8] * side < 0)) {
-        count = add_move(out_moves, count, max_moves, i, i - 8);
-      }
-      //down
-      if (in_bound(i + 8) && (b->squares[i + 8] == EMPTY || b->squares[i + 8] * side < 0)) {
-        count = add_move(out_moves, count, max_moves, i, i + 8);
-      }
-      int file = i % 8;
-      //left
-      if (file > 0 && in_bound(i - 1)) {
-        if (b->squares[i - 1] == EMPTY || b->squares[i - 1] * side < 0)
-          count = add_move(out_moves, count, max_moves, i, i - 1);
-      }
-      //up left
-      if (file > 0 && in_bound(i - 9)) {
-        if (b->squares[i - 9] == EMPTY || b->squares[i - 9] * side < 0)
-          count = add_move(out_moves, count, max_moves, i, i - 9);
-      }
-      //bottom left
-      if (file > 0 && in_bound(i + 7)) {
-        if (b->squares[i + 7] == EMPTY || b->squares[i + 7] * side < 0)
-          count = add_move(out_moves, count, max_moves, i, i + 7);
-      }
-      //right
-      if (file > 0 && in_bound(i + 1)) {
-        if (b->squares[i + 1] == EMPTY || b->squares[i + 1] * side < 0)
-          count = add_move(out_moves, count, max_moves, i, i + 1);
-      }
-      //up right
-      if (file > 0 && in_bound(i - 7)) {
-        if (b->squares[i - 7] == EMPTY || b->squares[i - 7] * side < 0)
-          count = add_move(out_moves, count, max_moves, i, i - 7);
-      }
-      //bottom right
-      if (file > 0 && in_bound(i + 9)) {
-        if (b->squares[i + 9] == EMPTY || b->squares[i + 9] * side < 0)
-          count = add_move(out_moves, count, max_moves, i, i + 9);
-      }
-    }
-  }
-  
+  }   
+  count = min(count, max_moves);
   return count;
-}
+} 
 
-// TODO: evaluation function (material, piece-square tables, etc.)
-__device__ int eval_board_device(const Board* b) {
-  // PLACEHOLDER: material sum
-  int score = 0;
-  for (int i = 0; i < 64; i++) score += (int)b->squares[i];
-  // from white perspective; multiply by side if you want side-relative.
-  return score;
-}
 
 __device__ void apply_move_device(Board& b, const Move& m) {
   int8_t p = b.squares[(int)m.from];
@@ -208,9 +83,8 @@ __device__ void apply_move_device(Board& b, const Move& m) {
   b.squares[(int)m.to] = p;
 }
 
-// TODO: search strategy kernel
+
 // This kernel should pick one move for the current board.
-// Different GPUs can run different kernels or strategies.
 __global__ void choose_move_kernel(const Board* d_board,
                                    Move* d_best_move,
                                    int* d_found,
@@ -222,6 +96,7 @@ __global__ void choose_move_kernel(const Board* d_board,
   // Generate moves once
   if (threadIdx.x == 0) {
     move_count = generate_moves_device(d_board, moves, 256);
+    if (move_count > 256) move_count = 256; 
     *d_found = (move_count > 0) ? 1 : 0;
   }
   __syncthreads();
@@ -234,7 +109,7 @@ __global__ void choose_move_kernel(const Board* d_board,
   if (i < move_count) {
     Board tmp = *d_board;
     apply_move_device(tmp, moves[i]);
-    int s = eval_board_device(&tmp);
+    int s = eval_board_simplest(&tmp);
 
     // Higher is better for side to move
     s *= (int)d_board->side_to_move;
@@ -270,10 +145,9 @@ __global__ void choose_move_kernel(const Board* d_board,
 
 
 // ------------------------------------------------------
-// 4) Host-side chess hooks (apply move, end condition)
+// Host-side chess hooks (apply move, end condition)
 // ------------------------------------------------------
 
-// TODO: apply move to board (must be correct if you care about chess)
 void apply_move_host(Board& b, const Move& m) {
   // PLACEHOLDER: move piece, no legality checks
   int8_t p = b.squares[(int)m.from];
@@ -282,7 +156,7 @@ void apply_move_host(Board& b, const Move& m) {
   // b.side_to_move = -b.side_to_move;
 }
 
-// TODO: detect checkmate/stalemate/illegal, etc.
+//check game over conditions
 GameResult check_game_over_host(const Board& b, int ply_count) {
   // PLACEHOLDER: stop after N plies
   if (ply_count >= 80) return DRAW;
@@ -321,7 +195,7 @@ Board make_initial_board() {
 }
 
 // Optional: pretty print board for debugging
-void print_board(const Board& b) {
+void print_board(const Board& b, bool isStart=false) {
   auto piece_char = [](int8_t p) -> char {
     switch (p) {
       case WP: return 'P'; case WN: return 'N'; case WB: return 'B';
@@ -331,7 +205,8 @@ void print_board(const Board& b) {
       default: return '.';
     }
   };
-  std::cout << (b.side_to_move > 0 ? "White" : "Black") << " to move\n";
+  if (!isStart) std::cout << (b.side_to_move > 0 ? "White" : "Black") << " to move\n";
+  else std::cout << "Initial position\n";
   for (int r = 7; r >= 0; r--) {
     for (int f = 0; f < 8; f++) {
       std::cout << piece_char(b.squares[r * 8 + f]) << " ";
@@ -343,7 +218,7 @@ void print_board(const Board& b) {
 }
 
 // ------------------------------------------------------
-// 5) Per-GPU "player" thread context + loop
+// Per-GPU "player" thread context + loop
 // ------------------------------------------------------
 
 struct PlayerGPUContext {
@@ -384,7 +259,7 @@ struct PlayerGPUContext {
 
     // One block is enough for skeleton. Expand later.
     CUDA_CHECK(cudaMemsetAsync(d_found, 0, sizeof(int), stream));
-    choose_move_kernel<<<1, 128, 0, stream>>>(d_board, d_best_move, d_found, seed);
+    choose_move_kernel<<<1, 256, 0, stream>>>(d_board, d_best_move, d_found, seed);
     CUDA_CHECK(cudaGetLastError());
   
     int found = 0;
@@ -441,12 +316,8 @@ void gpu_player_thread(PlayerGPUContext& ctx, SharedGameState* gs) {
     // Choose move on GPU
     Move m{};
     uint32_t seed = (uint32_t)rng();
-    //printf("[side %d] start choose_move ply=%d\n", ctx.side, gs->ply_count);
-    //fflush(stdout);
+
     bool found = ctx.choose_move(local_board, m, seed);
-    //std::cout << "found: " << found << std::endl;
-    //printf("[side %d] choose_move done found=%d\n", ctx.side, (int)found);
-    //fflush(stdout);
 
     {
       std::lock_guard<std::mutex> lk(gs->m);
@@ -458,8 +329,6 @@ void gpu_player_thread(PlayerGPUContext& ctx, SharedGameState* gs) {
         gs->stop.store(true);
       } else {
         apply_move_host(gs->board, m);
-        //printf("[side %d] applied move ply=%d new_side=%d\n",ctx.side, gs->ply_count, gs->board.side_to_move);
-        //fflush(stdout);
         gs->ply_count++;
         print_board(gs->board);
         gs->result = check_game_over_host(gs->board, gs->ply_count);
@@ -478,10 +347,14 @@ void gpu_player_thread(PlayerGPUContext& ctx, SharedGameState* gs) {
 }
 
 // --------------------------------------------
-// 6) Main: spawn two GPU players, run game
+// Main: spawn two GPU players, run game
 // --------------------------------------------
 
 int main() {
+
+  freopen("log.txt", "w", stdout);
+  // freopen("chess_error.txt", "w", stderr);
+
   int device_count = 0;
   CUDA_CHECK(cudaGetDeviceCount(&device_count));
   bool single_gpu_emulation = (device_count < 2);
@@ -495,7 +368,7 @@ int main() {
   gs.board = make_initial_board();
 
   std::cout << "Starting game on GPU0 (White) vs GPU1 (Black)\n";
-  print_board(gs.board);
+  print_board(gs.board, true);
 
   PlayerGPUContext p0{dev0, +1}, p1{dev1, -1};
 
@@ -504,15 +377,6 @@ int main() {
 
   // Kick off
   gs.cv.notify_all();
-
-  // Monitor loop (optional)
-  // while (!gs.stop.load()) {
-  //   {
-  //     std::lock_guard<std::mutex> lk(gs.m);
-  //     print_board(gs.board);
-  //   }
-  //   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  // }
 
   t0.join();
   t1.join();
