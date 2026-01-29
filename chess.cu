@@ -1,10 +1,11 @@
-// This is NOT a full chess engine. It is an extensible scaffold.
-//
+// This is a skeleton of a GPU-accelerated chess engine using CUDA.
+// Now the game only supports pawns and kings with very basic move generation and evaluation.
+// The focus is on the GPU integration and multi-GPU threading structure.
 // Build example:
 //   nvcc -std=c++17 -O2 gpu_chess_skeleton.cu -o gpu_chess
 //
 // Run:
-//   ./gpu_chess
+//   ./chess_gpu.exe
 //
 // Notes:
 // - Host keeps the authoritative board for simplicity.
@@ -257,7 +258,6 @@ struct PlayerGPUContext {
     CUDA_CHECK(cudaMemcpyAsync(d_board, &h_board, sizeof(Board),
                                cudaMemcpyHostToDevice, stream));
 
-    // One block is enough for skeleton. Expand later.
     CUDA_CHECK(cudaMemsetAsync(d_found, 0, sizeof(int), stream));
     choose_move_kernel<<<1, 256, 0, stream>>>(d_board, d_best_move, d_found, seed);
     CUDA_CHECK(cudaGetLastError());
